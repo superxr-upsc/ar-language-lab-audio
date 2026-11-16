@@ -1,0 +1,80 @@
+﻿using CodeBase.Common.Extensions;
+using CodeBase.Gameplay.ARObjects;
+using CodeBase.Infrastructure.Localization;
+using CodeBase.Infrastructure.ProjectResourcesProvider;
+using CodeBase.Infrastructure.VisualFX;
+using CodeBase.Infrastructure.Vuforia;
+using CodeBase.UI.Tasks;
+using Cysharp.Threading.Tasks;
+
+namespace CodeBase.Gameplay.Lessons.Tasks.Resolvers
+{
+    public class FindObjectTask : TaskResolverBase
+    {
+        private readonly ILocalizationService _localization;
+        private readonly ILessonManagementService _lessonManagementService;
+        private readonly IVisualFXPlayer _visualFXPlayer;
+        private readonly IProjectResourcesProvider _projectResourcesProvider;
+
+        private ARObjectConfig _selectedObjectConfig;
+        private ARObjectBase _selectedObject;
+        private VisualFX _completeTaskFx;
+
+        public FindObjectTask(TaskData taskData, 
+            IARCameraProvider cameraProvider, 
+            ILocalizationService localization, 
+            ILessonManagementService lessonManagementService,
+            IVisualFXPlayer visualFXPlayer,
+            IProjectResourcesProvider projectResourcesProvider,
+            Perspective perspective) 
+            : base(taskData, cameraProvider, perspective)
+        {
+            _lessonManagementService = lessonManagementService;
+            _visualFXPlayer = visualFXPlayer;
+            _projectResourcesProvider = projectResourcesProvider;
+            _localization = localization;
+        }
+
+        public override void Run(ActiveTaskData viewData)
+        {
+            base.Run(viewData);
+            _selectedObject.Observer.NearCameraEntered += OnNearCameraEntered;
+            _completeTaskFx = _projectResourcesProvider.LoadResource<VisualFX>();
+        }
+
+        public override void Dispose()
+        {
+            if (_selectedObject != null) 
+                _selectedObject.Observer.NearCameraEntered -= OnNearCameraEntered;
+
+            _selectedObject = null;
+            _selectedObjectConfig = null;
+        }
+
+        protected override bool TryResolveTargets()
+        {
+            _selectedObjectConfig = _taskData.TargetObjects.PickRandom();
+            if (_selectedObjectConfig == null)
+                return false;
+            
+            _selectedObject = _lessonManagementService.GetObject(_selectedObjectConfig);
+            return _selectedObject != null;
+        }
+
+        public override async UniTask<string> GetQuestDescription(string locale = LocalizationConsts.DefaultLocaleCode)
+        {
+            var objectName = await _localization.GetStringAsync(_selectedObjectConfig.LocalisationKey, locale, LocalizationConsts.DefaultStringTableName);
+            var questDescription = await _localization.GetStringAsync(_taskData.DescriptionLocalizationKey, locale, LocalizationConsts.DefaultStringTableName, new { ObjectName = objectName });
+            return questDescription;
+        }
+
+        private void OnNearCameraEntered(float arg1, float arg2)
+        {
+            if (_selectedObject != null) 
+                _selectedObject.Observer.NearCameraEntered -= OnNearCameraEntered;
+            
+            _visualFXPlayer.PlayEffectInstant(_completeTaskFx, _selectedObject.transform.position);
+            CompleteTask();
+        }
+    }
+}
